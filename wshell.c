@@ -8,59 +8,27 @@
  */
 
 #include "wsystools.h"
+#include "wCmd.h"
+#include "wJob.h"
 
 #define SHELLTITLE "[wShell]"
 #define SHELLINFO "wShell v1105\t-\tCreated by windtw 2011."
 #define MAXLINELEN 1024
-#define MAXARGS 128
-
-typedef struct cmdNode {
-	int argc;
-	char *argv[MAXARGS];
-	struct cmdNode *next;
-} CmdNode;
-
-typedef struct cmdList {
-	int size;
-	CmdNode *head, *end;
-} CmdList;
-
-typedef struct jobNode {
-	int jobid;
-	pid_t pid;
-	pid_t pgid;
-	int is_bg;
-	struct jobNode *next;
-} JobNode;
-
-typedef struct jobList {
-	int size;
-	JobNode *head, *end;
-} JobList;
 
 void get_cwd(char *path, char *home, int homelen, char *result);
 int eval(char *cmdline);
 int builtin_command(char *command);
+
 void child_handler(int sig);
 void interupt_handler(int sig);
 
 int parseLine(char *buf, CmdList *cmdlist);
 void remove_blank(char **buf);
 
-void init_jobs();
-int add_job(pid_t pid, pid_t pgid, int is_bg);
-int remove_job(pid_t pid);
-void list_jobs();
-
 void prepare_job(sigset_t *mask);
 pid_t execute_job(CmdNode *node, sigset_t *mask);
 pid_t execute_job_with_dup(CmdNode *node, sigset_t *mask, int pfd[]);
 void execute_jobs(CmdList *list, sigset_t *mask);
-
-void init_cmd();
-void add_cmd(CmdList *list, char *buf);
-int check_bg(CmdNode *node);
-void clean_cmd(CmdList *list);
 
 int check_file(char *filename);
 int absExecve(const char *filename, char *const argv[], char *const envp[]);
@@ -249,122 +217,6 @@ void interupt_handler(int sig)
 		Kill(running_pid, SIGINT);
 
 	return;
-}
-
-void init_jobs()
-{
-	joblist = malloc(sizeof(JobList));
-	joblist->size = 0;
-}
-
-void list_jobs()
-{
-	JobNode *curr = joblist->head;
-	while (curr) {
-		printf("[%d] %d\n", curr->jobid, curr->pid);
-		curr = curr->next;
-	}
-}
-
-int add_job(pid_t pid, pid_t pgid, int is_bg)
-{	
-	JobNode *node = malloc(sizeof(JobNode));
-	node->pid = pid;
-	node->pgid = pgid;
-	node->is_bg = is_bg;
-	node->next = NULL;
-	setpgid(pid, pgid);
-	
-	if (joblist->size) {
-		node->jobid = joblist->end->jobid;
-		joblist->end->next = node;
-		joblist->end = node;
-	} else {
-		joblist->head = joblist->end = node;
-		node->jobid = 1;
-	}
-	
-	joblist->size += 1;
-	
-	return node->jobid;
-}
-
-int remove_job(pid_t pid)
-{
-	int jobid;
-	JobNode *curr = joblist->head;
-	JobNode *prev = NULL;
-	while (curr) {
-		if (curr->pid == pid) {
-			if (curr == joblist->head)
-				joblist->head = curr->next;
-			else if (prev)
-				prev->next = curr->next;
-			jobid = curr->jobid;
-			free(curr);
-			joblist->size -= 1;
-			break;
-		}
-		prev = curr;
-		curr = curr->next;
-	}
-	return jobid;
-}
-
-void init_cmd(CmdList *list)
-{
-	list->size = 0;
-	list->head = list->end = NULL;
-}
-
-void add_cmd(CmdList *list, char *buf)
-{
-	char *delim;
-	
-	CmdNode *node = malloc(sizeof(CmdNode));
-	node->next = NULL;
-	
-	node->argc = 0;
-	while ((delim = strchr(buf, ' '))) 
-	{
-		node->argv[node->argc++] = buf;
-		*delim = '\0';
-		buf = delim + 1;
-		remove_blank(&buf);
-	}
-	
-	node->argv[node->argc] = NULL;
-	
-	if (list->size) {
-		list->end->next = node;
-		list->end = node;
-	}
-	else
-		list->head = list->end = node;
-
-	list->size += 1;
-}
-
-int check_bg(CmdNode *node)
-{
-	if(*node->argv[node->argc-1] == '&') {
-		node->argv[--(node->argc)] = NULL;
-		return 1;
-	} else
-		return 0;
-}
-
-void clean_cmd(CmdList *list)
-{
-	CmdNode *curr = list->head;
-	CmdNode *next;
-	while (curr != NULL) 
-	{
-		next = curr->next;
-		free(curr);
-		curr = next;
-	}
-	free(list);
 }
 
 void prepare_job(sigset_t *mask)
